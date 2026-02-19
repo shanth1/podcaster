@@ -30,3 +30,13 @@ services:
     depends_on:
       - mediamtx
     restart: always
+  nats:
+    image: nats:latest
+    ports:
+      - '4222:4222' # Main TCP for microservices (Go, Rust)
+      - '8222:8222' # HTTP monitor panel
+      - '9222:9222' # WebSocket (frontend)
+    command: >
+      -p 4222
+      -m 8222
+      --ws_port 9222
