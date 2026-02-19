@@ -1,0 +1,11 @@
+version: '3.9'
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml
+    ports:
+      - '7880:7880' # HTTP API / WSS
+      - '7881:7881' # TCP WebRTC
+      - '50000-50050:50000-50050/udp' # UDP WebRTC
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml
