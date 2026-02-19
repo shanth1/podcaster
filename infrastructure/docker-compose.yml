@@ -9,3 +9,24 @@ services:
       - '50000-50050:50000-50050/udp' # UDP WebRTC
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    ports:
+      - '1935:1935'
+      - '8888:8888'
+    environment:
+      - MTX_WEBRTC=no
+      - MTX_HLS=yes
+
+  ffmpeg-mock:
+    image: linuxserver/ffmpeg:latest
+    command: >
+      -re -f lavfi -i "testsrc=size=1280x720:rate=30"
+      -f lavfi -i "sine=frequency=1000:beep_factor=4"
+      -c:v libx264 -preset ultrafast -b:v 1500k -pix_fmt yuv420p -g 60
+      -c:a aac -b:a 128k
+      -f flv rtmp://mediamtx:1935/live/test
+    depends_on:
+      - mediamtx
+    restart: always
