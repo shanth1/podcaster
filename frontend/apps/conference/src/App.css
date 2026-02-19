@@ -1,4 +1,3 @@
-/* Оставляем стили только для экрана входа (формы) */
 .join-container {
   display: flex;
   flex-direction: column;

@@ -1,52 +1,69 @@
+import { useEffect, useRef, useState } from 'react';
+import Hls from 'hls.js';
 import './App.css';
 
 function App() {
-  const env = import.meta.env;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [status, setStatus] = useState('Connecting...');
+
+  const STREAM_URL = 'http://localhost:8888/live/test/index.m3u8';
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    let hls: Hls;
+
+    if (Hls.isSupported()) {
+      hls = new Hls({
+        lowLatencyMode: true,
+        liveSyncDurationCount: 2,
+      });
+
+      hls.loadSource(STREAM_URL);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setStatus('Live');
+        video.play().catch((e) => console.log('Autoplay blocked:', e));
+      });
+
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) {
+          setStatus('Stream offline');
+        }
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = STREAM_URL;
+      video.addEventListener('loadedmetadata', () => {
+        setStatus('Live');
+        video.play();
+      });
+    }
+
+    return () => {
+      if (hls) {
+        hls.destroy();
+      }
+    };
+  }, []);
 
   return (
-    <div
-      style={{
-        fontFamily: 'Inter, system-ui, Avenir, Helvetica, Arial, sans-serif',
-        textAlign: 'center',
-      }}
-    >
-      <h1>{env.VITE_APP_NAME}</h1>
-      <div
-        style={{
-          padding: '2rem',
-          border: '1px solid #ccc',
-          borderRadius: '8px',
-          maxWidth: '600px',
-          margin: '0 auto',
-        }}
-      >
-        <h2>System Status</h2>
-        <p>
-          Frontend Architecture: <strong>Monorepo / Yarn Workspaces</strong>
-        </p>
-
-        <div
-          style={{
-            textAlign: 'left',
-            background: '#f0f0f0',
-            padding: '1rem',
-            borderRadius: '4px',
-            color: '#333',
-          }}
-        >
-          <code>
-            API_URL: {env.VITE_API_URL}
-            <br />
-            MODE: {env.MODE}
-            <br />
-            BASE_URL: {env.BASE_URL}
-          </code>
-        </div>
-
-        <p style={{ marginTop: '1rem', color: '#666' }}>
-          Это приложение Viewer. В будущем здесь будет PixiJS слой и HLS плеер.
-        </p>
+    <div className="viewer-container">
+      <div className="ui-layer">
+        <h1>Viewer App</h1>
+        <p>Status: {status}</p>
+        <p>100k+ Scale Ready</p>
       </div>
+
+      <video
+        ref={videoRef}
+        className="video-layer"
+        controls
+        muted
+        autoPlay
+        playsInline
+      />
     </div>
   );
 }
