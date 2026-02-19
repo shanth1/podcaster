@@ -1,4 +1,5 @@
 version: '3.9'
+
 services:
   livekit:
     image: livekit/livekit-server:latest
@@ -19,24 +20,12 @@ services:
       - MTX_WEBRTC=no
       - MTX_HLS=yes
 
-  ffmpeg-mock:
-    image: linuxserver/ffmpeg:latest
-    command: >
-      -re -f lavfi -i "testsrc=size=1280x720:rate=30"
-      -f lavfi -i "sine=frequency=1000:beep_factor=4"
-      -c:v libx264 -preset ultrafast -b:v 1500k -pix_fmt yuv420p -g 60
-      -c:a aac -b:a 128k
-      -f flv rtmp://mediamtx:1935/live/test
-    depends_on:
-      - mediamtx
-    restart: always
   nats:
     image: nats:latest
     ports:
-      - '4222:4222' # Main TCP for microservices (Go, Rust)
-      - '8222:8222' # HTTP monitor panel
-      - '9222:9222' # WebSocket (frontend)
-    command: >
-      -p 4222
-      -m 8222
-      --ws_port 9222
+      - '4222:4222'
+      - '8222:8222'
+      - '9222:9222'
+    volumes:
+      - ./nats.conf:/etc/nats/nats.conf
+    command: '-c /etc/nats/nats.conf'
