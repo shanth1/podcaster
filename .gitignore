@@ -1,0 +1,21 @@
+# Binaries
+bin/
+dist/
+*.exe
+*.dll
+
+# Go
+vendor/
+go.sum
+
+# Node/Vite
+node_modules/
+.DS_Store
+dist-web/
+
+# IDE
+.vscode/
+.idea/
+
+# System
+tmp/

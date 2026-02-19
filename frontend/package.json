@@ -1,0 +1,21 @@
+{
+  "name": "podcaster",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:conference": "yarn workspace @app/conference dev",
+    "dev:mixer": "yarn workspace @app/mixer dev",
+    "dev:viewer": "yarn workspace @app/viewer dev",
+    "build": "yarn workspaces run build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  }
+}
