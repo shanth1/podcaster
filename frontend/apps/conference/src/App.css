@@ -1,42 +1,71 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
+/* Оставляем стили только для экрана входа (формы) */
+.join-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
   padding: 2rem;
-  text-align: center;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.join-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  max-width: 400px;
+  background: #222;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.join-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #ccc;
 }
 
-.card {
-  padding: 2em;
+.join-form input {
+  padding: 0.75rem;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: #333;
+  color: white;
+  font-size: 1rem;
 }
 
-.read-the-docs {
-  color: #888;
+.join-form button {
+  padding: 0.75rem;
+  background: #646cff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  margin-top: 1rem;
+}
+
+.join-form button:hover:not(:disabled) {
+  background: #535bf2;
+}
+
+.join-form button:disabled {
+  background: #444;
+  cursor: not-allowed;
+}
+
+.leave-btn {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1000;
+  background: rgba(255, 0, 0, 0.8);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
 }
