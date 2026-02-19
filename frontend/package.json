@@ -9,6 +9,7 @@
     "dev:conference": "yarn workspace @app/conference dev",
     "dev:mixer": "yarn workspace @app/mixer dev",
     "dev:viewer": "yarn workspace @app/viewer dev",
+    "dev": "concurrently \"yarn dev:conference\" \"yarn dev:mixer\" \"yarn dev:viewer\" --kill-others --prefix-colors auto",
     "build": "yarn workspaces run build"
   },
   "devDependencies": {
@@ -16,6 +17,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "concurrently": "^9.2.1",
+    "prettier": "^3.8.1",
     "typescript": "^5.9.3"
   }
 }
