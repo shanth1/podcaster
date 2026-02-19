@@ -10,29 +10,55 @@ import './App.css';
 function App() {
   const env = import.meta.env;
 
-  const [url, setUrl] = useState(env.VITE_LIVEKIT_URL || 'ws://localhost:7880');
+  const [roomName, setRoomName] = useState('Studio1');
+  const [identity, setIdentity] = useState(
+    `Podcaster_${Math.floor(Math.random() * 1000)}`
+  );
   const [token, setToken] = useState('');
-  const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
-  if (connected) {
+  const handleConnect = async () => {
+    setConnecting(true);
+    try {
+      const apiUrl = env.VITE_API_URL || 'http://localhost:8080';
+      const res = await fetch(
+        `${apiUrl}/api/join?room=${roomName}&identity=${identity}`
+      );
+
+      if (!res.ok) throw new Error('Failed to fetch token');
+
+      const data = await res.json();
+      setToken(data.token);
+    } catch (err) {
+      console.error(err);
+      alert('Error fetching token. Is backend running?');
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = () => {
+    setToken('');
+  };
+
+  if (token) {
     return (
       <LiveKitRoom
         video={true}
         audio={true}
         token={token}
-        serverUrl={url}
+        serverUrl={env.VITE_LIVEKIT_URL || 'ws://localhost:7880'}
         data-lk-theme="default"
         style={{ height: '100vh', width: '100vw' }}
-        onDisconnected={() => setConnected(false)}
+        onDisconnected={handleDisconnect}
       >
         <VideoConference />
         <RoomAudioRenderer />
-
         <button
-          onClick={() => setConnected(false)}
-          style={{ position: 'absolute', top: 10, right: 10, zIndex: 1000 }}
+          onClick={handleDisconnect}
+          style={{ position: 'absolute', top: 10, left: 10, zIndex: 1000 }}
         >
-          Leave Room
+          Leave
         </button>
       </LiveKitRoom>
     );
@@ -40,15 +66,13 @@ function App() {
 
   return (
     <div style={{ padding: '2rem', textAlign: 'center' }}>
-      <h1>{env.VITE_APP_NAME}</h1>
-      <p>Enter connection details to join the podcaster room.</p>
-
+      <h1>Podcaster Setup</h1>
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
           gap: '1rem',
-          maxWidth: '400px',
+          maxWidth: '300px',
           margin: '0 auto',
           padding: '2rem',
           border: '1px solid #ccc',
@@ -56,32 +80,39 @@ function App() {
         }}
       >
         <label style={{ textAlign: 'left' }}>
-          LiveKit server URL:
+          Room Name:
           <input
             type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            style={{ width: '100%', padding: '0.5rem', marginTop: '0.5rem' }}
+            value={roomName}
+            onChange={(e) => setRoomName(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '0.5rem',
+              boxSizing: 'border-box',
+            }}
           />
         </label>
 
         <label style={{ textAlign: 'left' }}>
-          Access Token:
+          Your Name (Identity):
           <input
-            type="password"
-            placeholder="ey..."
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            style={{ width: '100%', padding: '0.5rem', marginTop: '0.5rem' }}
+            type="text"
+            value={identity}
+            onChange={(e) => setIdentity(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '0.5rem',
+              boxSizing: 'border-box',
+            }}
           />
         </label>
 
         <button
-          onClick={() => setConnected(true)}
-          disabled={!token || !url}
-          style={{ padding: '0.75rem', marginTop: '1rem' }}
+          onClick={handleConnect}
+          disabled={connecting}
+          style={{ padding: '0.75rem' }}
         >
-          Connect to LiveKit
+          {connecting ? 'Connecting...' : 'Join Room'}
         </button>
       </div>
     </div>
