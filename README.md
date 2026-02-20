@@ -1,0 +1,2 @@
+- brew install nats-io/nats-tools/nats
+- brew install ffmpeg
