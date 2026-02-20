@@ -16,9 +16,11 @@ services:
     ports:
       - '1935:1935'
       - '8888:8888'
+      - '9997:9997'
     environment:
       - MTX_WEBRTC=no
       - MTX_HLS=yes
+      - MTX_API=yes
 
   nats:
     image: nats:latest
