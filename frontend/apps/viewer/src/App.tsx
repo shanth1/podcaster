@@ -4,7 +4,8 @@ import './App.css';
 
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [status, setStatus] = useState('Connecting...');
+  const [status, setStatus] = useState('Waiting for stream...');
+  const [isMuted, setIsMuted] = useState(true);
 
   const STREAM_URL = 'http://localhost:8888/live/test/index.m3u8';
 
@@ -13,53 +14,66 @@ function App() {
     if (!video) return;
 
     let hls: Hls;
+    let retryInterval: ReturnType<typeof setTimeout>;
 
-    if (Hls.isSupported()) {
-      hls = new Hls({
-        lowLatencyMode: true,
-        liveSyncDurationCount: 2,
-      });
+    const initPlayer = () => {
+      if (Hls.isSupported()) {
+        hls = new Hls({
+          lowLatencyMode: true,
+          liveSyncDurationCount: 2,
+          manifestLoadingMaxRetry: 2,
+          manifestLoadingMaxRetryTimeout: 2000,
+        });
 
-      hls.loadSource(STREAM_URL);
-      hls.attachMedia(video);
+        hls.loadSource(STREAM_URL);
+        hls.attachMedia(video);
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setStatus('Live');
-        video.play().catch((e) => console.log('Autoplay blocked:', e));
-      });
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          setStatus('🟢 LIVE');
+          video.play().catch(() => console.log('Autoplay blocked'));
+        });
 
-      hls.on(Hls.Events.ERROR, (_, data) => {
-        if (data.fatal) {
-          setStatus('Stream offline');
-        }
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = STREAM_URL;
-      video.addEventListener('loadedmetadata', () => {
-        setStatus('Live');
-        video.play();
-      });
-    }
-
-    return () => {
-      if (hls) {
-        hls.destroy();
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (data.fatal) {
+            setStatus('🔴 OFFLINE');
+            hls.destroy();
+            retryInterval = setTimeout(initPlayer, 3000);
+          }
+        });
       }
     };
+
+    initPlayer();
+
+    return () => {
+      if (hls) hls.destroy();
+      clearTimeout(retryInterval);
+    };
   }, []);
+
+  const toggleMute = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = !videoRef.current.muted;
+      setIsMuted(videoRef.current.muted);
+    }
+  };
 
   return (
     <div className="viewer-container">
       <div className="ui-layer">
-        <h1>Viewer App</h1>
+        <h1>Global Stream</h1>
         <p>Status: {status}</p>
-        <p>100k+ Scale Ready</p>
+        <button
+          onClick={toggleMute}
+          style={{ marginTop: '10px', cursor: 'pointer' }}
+        >
+          {isMuted ? '🔇 Unmute' : '🔊 Mute'}
+        </button>
       </div>
 
       <video
         ref={videoRef}
         className="video-layer"
-        controls
         muted
         autoPlay
         playsInline
