@@ -25,10 +25,7 @@ struct AdapterContract {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting Rust Render Adapter...");
-
     let client = connect("nats://localhost:4222").await?;
-    println!("✅ Connected to NATS. Waiting for tasks...");
-
     let mut subscriber = client.subscribe("adapter.commands").await?;
 
     while let Some(msg) = subscriber.next().await {
@@ -40,7 +37,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-
     Ok(())
 }
 
@@ -49,14 +45,8 @@ async fn start_render_session(contract: AdapterContract) -> Result<(), Box<dyn s
     room_opts.auto_subscribe = true;
 
     let (room, mut room_events) = Room::connect(&contract.livekit_url, &contract.token, room_opts).await?;
-    println!("✅ Rust Bot joined LiveKit room!");
-
     let video_source = NativeVideoSource::new(VideoResolution { width: 1280, height: 720 }, false);
-
-    let local_track = LocalVideoTrack::create_video_track(
-        "processed_video",
-        RtcVideoSource::Native(video_source.clone()),
-    );
+    let local_track = LocalVideoTrack::create_video_track("processed_video", RtcVideoSource::Native(video_source.clone()));
 
     let mut publish_opts = TrackPublishOptions::default();
     publish_opts.source = TrackSource::Camera;
@@ -65,23 +55,18 @@ async fn start_render_session(contract: AdapterContract) -> Result<(), Box<dyn s
         .publish_track(LocalTrack::Video(local_track), publish_opts)
         .await?;
 
-    println!("✅ Bot is ready to broadcast back to Conference");
-
     let has_main_video = Arc::new(Mutex::new(false));
 
     tokio::spawn(async move {
         let _room_keepalive = room;
-
         while let Some(event) = room_events.recv().await {
             if let RoomEvent::TrackSubscribed { track, participant, .. } = event {
                 if let RemoteTrack::Video(video_track) = track {
                     let mut has_main = has_main_video.lock().await;
                     let is_main_speaker = if !*has_main {
                         *has_main = true;
-                        println!("👑 НАЗНАЧЕН ГЛАВНЫМ СПИКЕРОМ (В FFMPEG): {}", participant.identity());
                         true
                     } else {
-                        println!("👻 ДОПОЛНИТЕЛЬНЫЙ СПИКЕР (ТОЛЬКО ОБРАТНО В КОНФУ): {}", participant.identity());
                         false
                     };
 
@@ -109,60 +94,38 @@ fn spawn_video_processor(
 ) {
     tokio::spawn(async move {
         let mut video_stream = NativeVideoStream::new(video_track.rtc_track());
-
         let mut ffmpeg_child: Option<tokio::process::Child> = None;
         let mut ffmpeg_stdin: Option<tokio::process::ChildStdin> = None;
-
         let mut current_width = 0;
         let mut current_height = 0;
-        let mut frame_count = 0;
-
-        println!("🔄 Запущен обработчик кадров для {}", identity);
 
         while let Some(frame) = video_stream.next().await {
             let i420 = frame.buffer.to_i420();
             let width = i420.width();
             let height = i420.height();
 
-            frame_count += 1;
-            if frame_count % 90 == 0 {
-                println!("🟢 {} отправил {} кадров ({}x{})", identity, frame_count, width, height);
-            }
-
             if is_main_speaker {
                 if width != current_width || height != current_height {
-                    println!("🎥 WebRTC Разрешение изменилось: {}x{}", width, height);
+                    println!("🎥 Смена разрешения у {}: {}x{}", identity, width, height);
                     current_width = width;
                     current_height = height;
 
                     drop(ffmpeg_stdin.take());
-
                     if let Some(mut child) = ffmpeg_child.take() {
                         let _ = child.kill().await;
                     }
 
-                    println!("🚀 Запускаем новый FFmpeg для {}x{}", width, height);
                     let mut child = Command::new("ffmpeg")
                         .args(&[
-                            "-hide_banner",
-                            "-loglevel", "warning",
-                            "-y",
-                            "-f", "rawvideo",
-                            "-pixel_format", "yuv420p",
+                            "-hide_banner", "-loglevel", "warning", "-y",
+                            "-f", "rawvideo", "-pixel_format", "yuv420p",
                             "-video_size", &format!("{}x{}", width, height),
-                            "-framerate", "30",
-                            "-i", "-",
-                            "-c:v", "libx264",
-                            "-preset", "veryfast",
-                            "-tune", "zerolatency",
-                            "-g", "60",
-                            "-sc_threshold", "0",
-                            "-b:v", "2000k",
-                            "-maxrate", "2000k",
-                            "-bufsize", "4000k",
-                            "-pix_fmt", "yuv420p",
-                            "-f", "flv",
-                            &rtmp_output,
+                            "-framerate", "30", "-i", "-",
+                            "-vf", "vflip,hflip",
+                            "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+                            "-g", "60", "-sc_threshold", "0",
+                            "-b:v", "2000k", "-maxrate", "2000k", "-bufsize", "4000k",
+                            "-pix_fmt", "yuv420p", "-f", "flv", &rtmp_output,
                         ])
                         .stdin(Stdio::piped())
                         .stdout(Stdio::null())
@@ -175,30 +138,25 @@ fn spawn_video_processor(
                 }
 
                 let (stride_y, stride_u, stride_v) = i420.strides();
-                let y_stride = stride_y as usize;
-                let u_stride = stride_u as usize;
-                let v_stride = stride_v as usize;
                 let (y_data, u_data, v_data) = i420.data();
-
                 let mut raw_bytes = Vec::with_capacity((width * height * 3 / 2) as usize);
 
                 for row in 0..(height as usize) {
-                    let start = row * y_stride;
+                    let start = row * (stride_y as usize);
                     raw_bytes.extend_from_slice(&y_data[start..start + (width as usize)]);
                 }
                 for row in 0..((height / 2) as usize) {
-                    let start = row * u_stride;
+                    let start = row * (stride_u as usize);
                     raw_bytes.extend_from_slice(&u_data[start..start + ((width / 2) as usize)]);
                 }
                 for row in 0..((height / 2) as usize) {
-                    let start = row * v_stride;
+                    let start = row * (stride_v as usize);
                     raw_bytes.extend_from_slice(&v_data[start..start + ((width / 2) as usize)]);
                 }
 
                 let mut is_broken = false;
                 if let Some(stdin) = ffmpeg_stdin.as_mut() {
-                    if let Err(e) = stdin.write_all(&raw_bytes).await {
-                        println!("❌ Ошибка FFmpeg (Broken pipe): {}. Перезапускаем поток...", e);
+                    if let Err(_) = stdin.write_all(&raw_bytes).await {
                         is_broken = true;
                     }
                 }
