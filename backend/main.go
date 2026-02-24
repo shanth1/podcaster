@@ -12,13 +12,23 @@ import (
 )
 
 const (
-	APIKey    = "devkey"
-	APISecret = "devsecret"
-	NatsUrl   = "nats://localhost:4222"
+	APIKey     = "devkey"
+	APISecret  = "devsecret"
+	NatsUrl    = "nats://localhost:4222"
+	LiveKitURL = "ws://localhost:7880"
 )
 
 type CommandRequest struct {
-	Command string `json:"command"`
+	Action string `json:"action"` // "START" или "STOP"
+	Room   string `json:"room"`   // "Studio1"
+}
+
+type AdapterContract struct {
+	Action     string `json:"action"`
+	RoomName   string `json:"room_name"`
+	LiveKitURL string `json:"livekit_url"`
+	Token      string `json:"token"`
+	RTMPOutput string `json:"rtmp_output"`
 }
 
 func main() {
@@ -31,7 +41,6 @@ func main() {
 
 	http.HandleFunc("/api/join", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-
 		roomName := r.URL.Query().Get("room")
 		identity := r.URL.Query().Get("identity")
 
@@ -40,28 +49,12 @@ func main() {
 			return
 		}
 
-		at := auth.NewAccessToken(APIKey, APISecret)
-		grant := &auth.VideoGrant{
-			RoomJoin: true,
-			Room:     roomName,
-		}
-
-		at.SetVideoGrant(grant).
-			SetIdentity(identity).
-			SetValidFor(time.Hour)
-
-		token, err := at.ToJWT()
-		if err != nil {
-			http.Error(w, "failed to generate token", http.StatusInternalServerError)
-			return
-		}
-
+		token, _ := createLiveKitToken(roomName, identity, false) // TODO: ??
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"token": token,
-		})
+		json.NewEncoder(w).Encode(map[string]string{"token": token})
 	})
 
+	// Эндпоинт управления (Mixer)
 	http.HandleFunc("/api/command", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -72,24 +65,28 @@ func main() {
 			return
 		}
 
-		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
 		var req CommandRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
 
-		err = nc.Publish("adapter.command", []byte(req.Command))
-		if err != nil {
-			http.Error(w, "Failed to publish to NATS", http.StatusInternalServerError)
-			return
+		contract := AdapterContract{
+			Action:   req.Action,
+			RoomName: req.Room,
 		}
 
-		fmt.Printf("📢 Published to NATS: %s\n", req.Command)
+		if req.Action == "START" {
+			botToken, _ := createLiveKitToken(req.Room, "Adapter-Bot", false)
+			contract.LiveKitURL = LiveKitURL
+			contract.Token = botToken
+			contract.RTMPOutput = "rtmp://localhost:1935/live/test" // TODO
+		}
+
+		payload, _ := json.Marshal(contract)
+		nc.Publish("adapter.commands", payload)
+
+		fmt.Printf("📢 Published Desired State to NATS: %s\n", string(payload))
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -97,4 +94,22 @@ func main() {
 
 	fmt.Println("🚀 Core Backend is running on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func createLiveKitToken(room, identity string, hidden bool) (string, error) {
+	at := auth.NewAccessToken(APIKey, APISecret)
+
+	canPub := true
+	canSub := true
+
+	grant := &auth.VideoGrant{
+		RoomJoin:     true,
+		Room:         room,
+		Hidden:       hidden,
+		CanPublish:   &canPub,
+		CanSubscribe: &canSub,
+	}
+
+	at.SetVideoGrant(grant).SetIdentity(identity).SetValidFor(time.Hour)
+	return at.ToJWT()
 }

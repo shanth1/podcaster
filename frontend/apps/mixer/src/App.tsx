@@ -6,6 +6,7 @@ function App() {
   const apiUrl = env.VITE_API_URL || 'http://localhost:8080';
 
   const [logMsgs, setLogMsgs] = useState<string[]>(['System Ready.']);
+  const roomToControl = 'Studio1';
 
   const addLog = (msg: string) => {
     setLogMsgs((prev) =>
@@ -13,38 +14,32 @@ function App() {
     );
   };
 
-  const sendCommand = async (cmd: string) => {
+  const sendCommand = async (action: 'START' | 'STOP') => {
     try {
-      addLog(`Sending command: ${cmd}...`);
+      addLog(`Sending desired state: ${action}...`);
       const res = await fetch(`${apiUrl}/api/command`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd }),
+        body: JSON.stringify({ action, room: roomToControl }),
       });
 
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-      addLog(`✅ Command ${cmd} accepted by Core.`);
+      addLog(`✅ State ${action} accepted by Core.`);
     } catch (error) {
-      addLog(`❌ Failed to send ${cmd}: ${error}`);
+      addLog(`❌ Failed to send ${action}: ${error}`);
     }
   };
 
   return (
     <div className="mixer-container">
       <h1>Director's Mixer</h1>
-      <p style={{ color: '#888' }}>Control Plane for Render Adapter</p>
+      <p style={{ color: '#888' }}>Control Plane (Room: {roomToControl})</p>
 
       <div className="controls-grid">
-        <button
-          className="btn btn-start"
-          onClick={() => sendCommand('START_RENDER')}
-        >
+        <button className="btn btn-start" onClick={() => sendCommand('START')}>
           START GLOBAL STREAM
         </button>
-        <button
-          className="btn btn-stop"
-          onClick={() => sendCommand('STOP_RENDER')}
-        >
+        <button className="btn btn-stop" onClick={() => sendCommand('STOP')}>
           STOP STREAM
         </button>
       </div>
