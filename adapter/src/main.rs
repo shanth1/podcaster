@@ -3,15 +3,15 @@ use futures::stream::StreamExt;
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::webrtc::prelude::*;
-use livekit::webrtc::video_frame::{VideoBuffer, VideoFrame, VideoRotation};
+use livekit::webrtc::video_frame::{VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use serde::Deserialize;
 use std::process::Stdio;
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::Mutex;
-use std::sync::Arc;
 
 #[derive(Deserialize, Debug)]
 struct AdapterContract {
@@ -58,13 +58,15 @@ async fn start_render_session(contract: AdapterContract) -> Result<(), Box<dyn s
         RtcVideoSource::Native(video_source.clone()),
     );
 
+    let mut publish_opts = TrackPublishOptions::default();
+    publish_opts.source = TrackSource::Camera;
+
     room.local_participant()
-        .publish_track(LocalTrack::Video(local_track), TrackPublishOptions::default())
+        .publish_track(LocalTrack::Video(local_track), publish_opts)
         .await?;
 
     println!("✅ Bot is ready to broadcast back to Conference");
 
-    // Защита от дублей FFmpeg, но теперь правильно (через Mutex и только для Видео)
     let has_main_video = Arc::new(Mutex::new(false));
 
     tokio::spawn(async move {
@@ -124,7 +126,7 @@ fn spawn_video_processor(
 
             frame_count += 1;
             if frame_count % 90 == 0 {
-                println!("🟢 {} отправил {} кадров", identity, frame_count);
+                println!("🟢 {} отправил {} кадров ({}x{})", identity, frame_count, width, height);
             }
 
             if is_main_speaker {
@@ -133,29 +135,31 @@ fn spawn_video_processor(
                     current_width = width;
                     current_height = height;
 
-                    if let Some(mut stdin) = ffmpeg_stdin.take() {
-                        let _ = stdin.shutdown().await;
-                    }
+                    ffmpeg_stdin = None;
                     if let Some(mut child) = ffmpeg_child.take() {
-                        println!("💀 Убиваем старый FFmpeg...");
                         let _ = child.kill().await;
-                        let _ = child.wait().await;
                     }
 
                     println!("🚀 Запускаем новый FFmpeg для {}x{}", width, height);
                     let mut child = Command::new("ffmpeg")
                         .args(&[
+                            "-hide_banner",
+                            "-loglevel", "error",
                             "-y",
                             "-f", "rawvideo",
                             "-pixel_format", "yuv420p",
                             "-video_size", &format!("{}x{}", width, height),
                             "-framerate", "30",
-                            "-i", "-",
-                            "-vf", "negate",
+                            "-i", "-", // Читаем из stdin
                             "-c:v", "libx264",
-                            "-preset", "ultrafast",
+                            "-preset", "veryfast",
+                            "-tune", "zerolatency",
                             "-b:v", "2000k",
+                            "-maxrate", "2000k",
+                            "-bufsize", "4000k",
+                            "-pix_fmt", "yuv420p",
                             "-f", "flv",
+                            "-flvflags", "no_duration_filesize",
                             &rtmp_output,
                         ])
                         .stdin(Stdio::piped())
@@ -168,16 +172,41 @@ fn spawn_video_processor(
                     ffmpeg_child = Some(child);
                 }
 
-                // СНАЧАЛА читаем байты
-                let (y, u, v) = i420.data();
-                let mut raw_bytes = Vec::with_capacity((width * height * 3 / 2) as usize);
-                raw_bytes.extend_from_slice(y);
-                raw_bytes.extend_from_slice(u);
-                raw_bytes.extend_from_slice(v);
+                let (stride_y, stride_u, stride_v) = i420.strides();
+                let y_stride = stride_y as usize;
+                let u_stride = stride_u as usize;
+                let v_stride = stride_v as usize;
+                let (y_data, u_data, v_data) = i420.data();
 
+                let mut raw_bytes = Vec::with_capacity((width * height * 3 / 2) as usize);
+
+                for row in 0..(height as usize) {
+                    let start = row * y_stride;
+                    raw_bytes.extend_from_slice(&y_data[start..start + (width as usize)]);
+                }
+                for row in 0..((height / 2) as usize) {
+                    let start = row * u_stride;
+                    raw_bytes.extend_from_slice(&u_data[start..start + ((width / 2) as usize)]);
+                }
+                for row in 0..((height / 2) as usize) {
+                    let start = row * v_stride;
+                    raw_bytes.extend_from_slice(&v_data[start..start + ((width / 2) as usize)]);
+                }
+
+                let mut is_broken = false;
                 if let Some(stdin) = ffmpeg_stdin.as_mut() {
                     if let Err(e) = stdin.write_all(&raw_bytes).await {
-                        println!("❌ Ошибка записи в FFmpeg: {}", e);
+                        println!("❌ Ошибка FFmpeg (Broken pipe): {}. Перезапускаем поток...", e);
+                        is_broken = true;
+                    }
+                }
+
+                if is_broken {
+                    current_width = 0;
+                    current_height = 0;
+                    ffmpeg_stdin = None;
+                    if let Some(mut child) = ffmpeg_child.take() {
+                        let _ = child.kill().await;
                     }
                 }
             }
