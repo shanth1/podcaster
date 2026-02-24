@@ -19,8 +19,8 @@ const (
 )
 
 type CommandRequest struct {
-	Action string `json:"action"` // "START" или "STOP"
-	Room   string `json:"room"`   // "Studio1"
+	Action string `json:"action"`
+	Room   string `json:"room"`
 }
 
 type AdapterContract struct {
@@ -49,12 +49,11 @@ func main() {
 			return
 		}
 
-		token, _ := createLiveKitToken(roomName, identity, false) // TODO: ??
+		token, _ := createLiveKitToken(roomName, identity)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"token": token})
 	})
 
-	// Эндпоинт управления (Mixer)
 	http.HandleFunc("/api/command", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -71,22 +70,21 @@ func main() {
 			return
 		}
 
-		contract := AdapterContract{
-			Action:   req.Action,
-			RoomName: req.Room,
-		}
-
 		if req.Action == "START" {
-			botToken, _ := createLiveKitToken(req.Room, "Adapter-Bot", false)
-			contract.LiveKitURL = LiveKitURL
-			contract.Token = botToken
-			contract.RTMPOutput = "rtmp://localhost:1935/live/test" // TODO
+			botToken, _ := createLiveKitToken(req.Room, "Adapter-Bot")
+
+			contract := AdapterContract{
+				Action:     "START",
+				RoomName:   req.Room,
+				LiveKitURL: LiveKitURL,
+				Token:      botToken,
+				RTMPOutput: "rtmp://localhost:1935/live/test",
+			}
+
+			payload, _ := json.Marshal(contract)
+			nc.Publish("adapter.commands", payload)
+			fmt.Printf("📢 Published Desired State: %s\n", string(payload))
 		}
-
-		payload, _ := json.Marshal(contract)
-		nc.Publish("adapter.commands", payload)
-
-		fmt.Printf("📢 Published Desired State to NATS: %s\n", string(payload))
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -96,16 +94,13 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func createLiveKitToken(room, identity string, hidden bool) (string, error) {
+func createLiveKitToken(room, identity string) (string, error) {
 	at := auth.NewAccessToken(APIKey, APISecret)
-
-	canPub := true
-	canSub := true
+	canPub, canSub := true, true
 
 	grant := &auth.VideoGrant{
 		RoomJoin:     true,
 		Room:         room,
-		Hidden:       hidden,
 		CanPublish:   &canPub,
 		CanSubscribe: &canSub,
 	}
