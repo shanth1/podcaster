@@ -135,7 +135,8 @@ fn spawn_video_processor(
                     current_width = width;
                     current_height = height;
 
-                    ffmpeg_stdin = None;
+                    drop(ffmpeg_stdin.take());
+
                     if let Some(mut child) = ffmpeg_child.take() {
                         let _ = child.kill().await;
                     }
@@ -144,22 +145,23 @@ fn spawn_video_processor(
                     let mut child = Command::new("ffmpeg")
                         .args(&[
                             "-hide_banner",
-                            "-loglevel", "error",
+                            "-loglevel", "warning",
                             "-y",
                             "-f", "rawvideo",
                             "-pixel_format", "yuv420p",
                             "-video_size", &format!("{}x{}", width, height),
                             "-framerate", "30",
-                            "-i", "-", // Читаем из stdin
+                            "-i", "-",
                             "-c:v", "libx264",
                             "-preset", "veryfast",
                             "-tune", "zerolatency",
+                            "-g", "60",
+                            "-sc_threshold", "0",
                             "-b:v", "2000k",
                             "-maxrate", "2000k",
                             "-bufsize", "4000k",
                             "-pix_fmt", "yuv420p",
                             "-f", "flv",
-                            "-flvflags", "no_duration_filesize",
                             &rtmp_output,
                         ])
                         .stdin(Stdio::piped())
@@ -204,7 +206,7 @@ fn spawn_video_processor(
                 if is_broken {
                     current_width = 0;
                     current_height = 0;
-                    ffmpeg_stdin = None;
+                    drop(ffmpeg_stdin.take());
                     if let Some(mut child) = ffmpeg_child.take() {
                         let _ = child.kill().await;
                     }
