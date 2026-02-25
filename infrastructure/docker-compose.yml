@@ -23,7 +23,7 @@ services:
       - MTX_SRT=no
       - MTX_HLS=yes
       - MTX_READTIMEOUT=60s
-      - MTX_API=no
+      - MTX_API=yes
 
   nats:
     image: nats:latest

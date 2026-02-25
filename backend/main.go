@@ -43,12 +43,6 @@ func main() {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		roomName := r.URL.Query().Get("room")
 		identity := r.URL.Query().Get("identity")
-
-		if roomName == "" || identity == "" {
-			http.Error(w, "room and identity are required", http.StatusBadRequest)
-			return
-		}
-
 		token, _ := createLiveKitToken(roomName, identity)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"token": token})
@@ -73,6 +67,8 @@ func main() {
 			contract.LiveKitURL = LiveKitURL
 			contract.Token = botToken
 			contract.RTMPOutput = "rtmp://localhost:1935/live/test"
+		} else if req.Action == "STOP" {
+			clearMediaMtxStream()
 		}
 
 		payload, _ := json.Marshal(contract)
@@ -85,6 +81,14 @@ func main() {
 
 	fmt.Println("🚀 Core Backend is running on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func clearMediaMtxStream() {
+	req, err := http.NewRequest(http.MethodDelete, "http://localhost:9997/v3/paths/delete/live/test", nil)
+	if err == nil {
+		client := &http.Client{Timeout: 2 * time.Second}
+		client.Do(req)
+	}
 }
 
 func createLiveKitToken(room, identity string) (string, error) {
