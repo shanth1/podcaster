@@ -7,6 +7,7 @@ use livekit::webrtc::video_frame::{VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
@@ -22,9 +23,14 @@ struct AdapterContract {
     rtmp_output: String,
 }
 
+struct AppState {
+    active_rooms: Mutex<HashMap<String, Arc<Room>>>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting Rust Render Adapter...");
+    let state = Arc::new(AppState { active_rooms: Mutex::new(HashMap::new()) });
     let client = connect("nats://localhost:4222").await?;
     let mut subscriber = client.subscribe("adapter.commands").await?;
 
@@ -32,33 +38,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let payload = String::from_utf8_lossy(&msg.payload);
         if let Ok(contract) = serde_json::from_str::<AdapterContract>(&payload) {
             if contract.action == "START" {
-                println!("🎬 Starting render session for room: {}", contract.room_name);
-                start_render_session(contract).await?;
+                let _ = start_render_session(contract, state.clone()).await;
+            } else if contract.action == "STOP" {
+                let _ = stop_render_session(contract, state.clone()).await;
             }
         }
     }
     Ok(())
 }
 
-async fn start_render_session(contract: AdapterContract) -> Result<(), Box<dyn std::error::Error>> {
+async fn stop_render_session(contract: AdapterContract, state: Arc<AppState>) -> Result<(), Box<dyn std::error::Error>> {
+    println!("🛑 Stopping render session for room: {}", contract.room_name);
+    let mut rooms = state.active_rooms.lock().await;
+
+    if let Some(room) = rooms.remove(&contract.room_name) {
+        let _ = room.close().await;
+        println!("✅ Bot left room. Cleanup initiated.");
+    } else {
+        println!("⚠️ Room {} not found or already stopped.", contract.room_name);
+    }
+    Ok(())
+}
+
+async fn start_render_session(contract: AdapterContract, state: Arc<AppState>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut rooms = state.active_rooms.lock().await;
+    if rooms.contains_key(&contract.room_name) {
+        return Ok(());
+    }
+
+    println!("🎬 Starting render session for room: {}", contract.room_name);
     let mut room_opts = RoomOptions::default();
     room_opts.auto_subscribe = true;
 
     let (room, mut room_events) = Room::connect(&contract.livekit_url, &contract.token, room_opts).await?;
+    let room_arc = Arc::new(room);
+    rooms.insert(contract.room_name.clone(), room_arc.clone());
+
     let video_source = NativeVideoSource::new(VideoResolution { width: 1280, height: 720 }, false);
     let local_track = LocalVideoTrack::create_video_track("processed_video", RtcVideoSource::Native(video_source.clone()));
 
     let mut publish_opts = TrackPublishOptions::default();
     publish_opts.source = TrackSource::Camera;
 
-    room.local_participant()
+    room_arc.local_participant()
         .publish_track(LocalTrack::Video(local_track), publish_opts)
         .await?;
 
     let has_main_video = Arc::new(Mutex::new(false));
 
     tokio::spawn(async move {
-        let _room_keepalive = room;
         while let Some(event) = room_events.recv().await {
             if let RoomEvent::TrackSubscribed { track, participant, .. } = event {
                 if let RemoteTrack::Video(video_track) = track {
@@ -115,16 +143,23 @@ fn spawn_video_processor(
                         let _ = child.kill().await;
                     }
 
+                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+
                     let mut child = Command::new("ffmpeg")
+                        .kill_on_drop(true)
                         .args(&[
-                            "-hide_banner", "-loglevel", "warning", "-y",
+                            "-hide_banner",
+                            "-loglevel", "error",
+                            "-y",
+                            "-use_wallclock_as_timestamps", "1",
                             "-f", "rawvideo", "-pixel_format", "yuv420p",
                             "-video_size", &format!("{}x{}", width, height),
                             "-framerate", "30", "-i", "-",
+                            "-an",
                             "-vf", "vflip,hflip",
-                            "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
-                            "-g", "60", "-sc_threshold", "0",
-                            "-b:v", "2000k", "-maxrate", "2000k", "-bufsize", "4000k",
+                            "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+                            "-b:v", "2500k", "-maxrate", "2500k", "-bufsize", "5000k",
+                            "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
                             "-pix_fmt", "yuv420p", "-f", "flv", &rtmp_output,
                         ])
                         .stdin(Stdio::piped())
@@ -154,20 +189,8 @@ fn spawn_video_processor(
                     raw_bytes.extend_from_slice(&v_data[start..start + ((width / 2) as usize)]);
                 }
 
-                let mut is_broken = false;
                 if let Some(stdin) = ffmpeg_stdin.as_mut() {
-                    if let Err(_) = stdin.write_all(&raw_bytes).await {
-                        is_broken = true;
-                    }
-                }
-
-                if is_broken {
-                    current_width = 0;
-                    current_height = 0;
-                    drop(ffmpeg_stdin.take());
-                    if let Some(mut child) = ffmpeg_child.take() {
-                        let _ = child.kill().await;
-                    }
+                    let _ = stdin.write_all(&raw_bytes).await;
                 }
             }
 
@@ -177,6 +200,11 @@ fn spawn_video_processor(
                 buffer: i420,
             };
             source_clone.capture_frame(&processed_frame);
+        }
+
+        drop(ffmpeg_stdin.take());
+        if let Some(mut child) = ffmpeg_child.take() {
+            let _ = child.kill().await;
         }
     });
 }

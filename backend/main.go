@@ -65,26 +65,19 @@ func main() {
 		}
 
 		var req CommandRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			return
-		}
+		json.NewDecoder(r.Body).Decode(&req)
 
+		contract := AdapterContract{Action: req.Action, RoomName: req.Room}
 		if req.Action == "START" {
 			botToken, _ := createLiveKitToken(req.Room, "Adapter-Bot")
-
-			contract := AdapterContract{
-				Action:     "START",
-				RoomName:   req.Room,
-				LiveKitURL: LiveKitURL,
-				Token:      botToken,
-				RTMPOutput: "rtmp://localhost:1935/live/test",
-			}
-
-			payload, _ := json.Marshal(contract)
-			nc.Publish("adapter.commands", payload)
-			fmt.Printf("📢 Published Desired State: %s\n", string(payload))
+			contract.LiveKitURL = LiveKitURL
+			contract.Token = botToken
+			contract.RTMPOutput = "rtmp://localhost:1935/live/test"
 		}
+
+		payload, _ := json.Marshal(contract)
+		nc.Publish("adapter.commands", payload)
+		fmt.Printf("📢 Published NATS Command: %s\n", req.Action)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -97,14 +90,7 @@ func main() {
 func createLiveKitToken(room, identity string) (string, error) {
 	at := auth.NewAccessToken(APIKey, APISecret)
 	canPub, canSub := true, true
-
-	grant := &auth.VideoGrant{
-		RoomJoin:     true,
-		Room:         room,
-		CanPublish:   &canPub,
-		CanSubscribe: &canSub,
-	}
-
+	grant := &auth.VideoGrant{RoomJoin: true, Room: room, CanPublish: &canPub, CanSubscribe: &canSub}
 	at.SetVideoGrant(grant).SetIdentity(identity).SetValidFor(time.Hour)
 	return at.ToJWT()
 }
