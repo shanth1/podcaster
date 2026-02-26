@@ -5,7 +5,16 @@ import './App.css';
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  const clientId = useRef(Math.random().toString(36).substring(2, 15)).current;
+  const [clientId] = useState(() => {
+    const savedId = localStorage.getItem('viewerId');
+    if (savedId) return savedId;
+
+    const newId = crypto.randomUUID
+      ? crypto.randomUUID()
+      : Date.now().toString(36);
+    localStorage.setItem('viewerId', newId);
+    return newId;
+  });
 
   const [isLive, setIsLive] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -23,11 +32,14 @@ function App() {
           const data = await res.json();
           setViewerCount(data.viewers);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error(e);
+      }
     };
 
     fetchStats();
-    const intervalId = window.setInterval(fetchStats, 3000); // Пингуем каждые 3 секунды
+    const intervalId = window.setInterval(fetchStats, 3000);
+
     return () => window.clearInterval(intervalId);
   }, [API_URL, clientId]);
 
@@ -45,10 +57,7 @@ function App() {
           setIsLive(true);
         }
       } catch (e) {
-        console.debug(
-          'Stream is offline. Waiting for the pipeline to start...',
-          e
-        );
+        console.error(e);
       }
     }, 2000);
 
