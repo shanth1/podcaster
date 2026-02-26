@@ -18,12 +18,13 @@ services:
       - '8888:8888'
       - '9997:9997'
     environment:
-      - MTX_WEBRTC=no
-      - MTX_RTSP=no
-      - MTX_SRT=no
-      - MTX_HLS=yes
-      - MTX_READTIMEOUT=60s
-      - MTX_API=yes
+      # - MTX_WEBRTC=yes
+      # - MTX_PATHS_ALL_OTHERS_RECORD=no
+      # - MTX_READTIMEOUT=10s
+      - MTX_DUMMY_VAR=1
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml
+      - ./recordings:/recordings
 
   nats:
     image: nats:latest

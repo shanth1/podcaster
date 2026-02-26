@@ -1,0 +1,18 @@
+# ==========================================================
+# for env: MTX_ prefix and capslock: MTX_WEBRTC=yes, MTX_RTSP=yes
+# ==========================================================
+webrtc: no
+rtsp: no
+srt: no
+hls: yes
+
+readTimeout: 60s
+
+api: yes
+apiAddress: :9997
+
+paths:
+  all_others:
+    record: no
+    recordPath: ./recordings/%path_%Y-%m-%d_%H-%M-%S.mp4
+    recordFormat: fmp4
