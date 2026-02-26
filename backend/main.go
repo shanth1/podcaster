@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/livekit/protocol/auth"
@@ -12,10 +13,16 @@ import (
 )
 
 const (
-	APIKey     = "devkey"
-	APISecret  = "devsecret"
-	NatsUrl    = "nats://localhost:4222"
-	LiveKitURL = "ws://localhost:7880"
+	APIKey      = "devkey"
+	APISecret   = "devsecret"
+	NatsUrl     = "nats://localhost:4222"
+	LiveKitURL  = "ws://localhost:7880"
+	MediaMtxAPI = "http://localhost:9997"
+)
+
+var (
+	viewersMutex sync.Mutex
+	viewers      = make(map[string]time.Time)
 )
 
 type CommandRequest struct {
@@ -79,12 +86,37 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
+	http.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+
+		clientId := r.URL.Query().Get("clientId")
+		now := time.Now()
+
+		viewersMutex.Lock()
+		if clientId != "" {
+			viewers[clientId] = now
+		}
+
+		activeCount := 0
+		for id, lastSeen := range viewers {
+			if now.Sub(lastSeen) > 5*time.Second {
+				delete(viewers, id)
+			} else {
+				activeCount++
+			}
+		}
+		viewersMutex.Unlock()
+
+		json.NewEncoder(w).Encode(map[string]int{"viewers": activeCount})
+	})
+
 	fmt.Println("🚀 Core Backend is running on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 func clearMediaMtxStream() {
-	req, err := http.NewRequest(http.MethodDelete, "http://localhost:9997/v3/paths/delete/live/test", nil)
+	req, err := http.NewRequest(http.MethodDelete, MediaMtxAPI+"/v3/paths/delete/live/test", nil)
 	if err == nil {
 		client := &http.Client{Timeout: 2 * time.Second}
 		client.Do(req)

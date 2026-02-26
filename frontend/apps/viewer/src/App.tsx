@@ -4,35 +4,69 @@ import './App.css';
 
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  const clientId = useRef(Math.random().toString(36).substring(2, 15)).current;
+
   const [isLive, setIsLive] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
+  const [viewerCount, setViewerCount] = useState(0);
 
+  const env = import.meta.env;
+  const API_URL = env.VITE_API_URL || 'http://localhost:8080';
   const STREAM_URL = 'http://localhost:8888/live/test/index.m3u8';
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/stats?clientId=${clientId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setViewerCount(data.viewers);
+        }
+      } catch (e) {}
+    };
+
+    fetchStats();
+    const intervalId = window.setInterval(fetchStats, 3000); // Пингуем каждые 3 секунды
+    return () => window.clearInterval(intervalId);
+  }, [API_URL, clientId]);
 
   useEffect(() => {
     if (isLive) return;
 
-    const interval = setInterval(async () => {
+    const intervalId = window.setInterval(async () => {
       try {
         const res = await fetch(`${STREAM_URL}?t=${Date.now()}`, {
+          method: 'GET',
           cache: 'no-store',
         });
+
         if (res.ok) {
           setIsLive(true);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.debug(
+          'Stream is offline. Waiting for the pipeline to start...',
+          e
+        );
+      }
     }, 2000);
 
-    return () => clearInterval(interval);
-  }, [isLive]);
+    return () => window.clearInterval(intervalId);
+  }, [isLive, STREAM_URL]);
 
   useEffect(() => {
     if (!isLive || !videoRef.current) return;
 
+    if (!Hls.isSupported()) {
+      console.error('HLS is not supported in this browser');
+      return;
+    }
+
     const hls = new Hls({
       liveSyncDurationCount: 2,
-      manifestLoadingMaxRetry: 1,
-      fragLoadingMaxRetry: 1,
+      manifestLoadingMaxRetry: 2,
+      fragLoadingMaxRetry: 2,
     });
 
     hls.loadSource(`${STREAM_URL}?t=${Date.now()}`);
@@ -57,7 +91,7 @@ function App() {
     return () => {
       hls.destroy();
     };
-  }, [isLive]);
+  }, [isLive, STREAM_URL]);
 
   const toggleMute = () => {
     if (videoRef.current) {
@@ -70,7 +104,10 @@ function App() {
     <div className="viewer-container">
       <div className="ui-layer">
         <h1>Global Stream</h1>
-        <p>Status: {isLive ? '🟢 LIVE' : '🔴 OFFLINE / WAITING'}</p>
+        <p>Status: {isLive ? '🟢 LIVE' : '🔴 OFFLINE'}</p>
+        <p style={{ color: '#fff', fontSize: '0.9rem', marginTop: '5px' }}>
+          👁️ Viewers: {viewerCount}
+        </p>
         <button
           onClick={toggleMute}
           style={{ marginTop: '10px', cursor: 'pointer' }}
