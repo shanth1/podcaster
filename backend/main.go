@@ -23,6 +23,9 @@ const (
 var (
 	viewersMutex sync.Mutex
 	viewers      = make(map[string]time.Time)
+
+	streamStateMutex sync.Mutex
+	isStreamActive   bool
 )
 
 type CommandRequest struct {
@@ -70,11 +73,19 @@ func main() {
 
 		contract := AdapterContract{Action: req.Action, RoomName: req.Room}
 		if req.Action == "START" {
+			streamStateMutex.Lock()
+			isStreamActive = true
+			streamStateMutex.Unlock()
+
 			botToken, _ := createLiveKitToken(req.Room, "Adapter-Bot")
 			contract.LiveKitURL = LiveKitURL
 			contract.Token = botToken
 			contract.RTMPOutput = "rtmp://localhost:1935/live/test"
 		} else if req.Action == "STOP" {
+			streamStateMutex.Lock()
+			isStreamActive = false
+			streamStateMutex.Unlock()
+
 			clearMediaMtxStream()
 		}
 
@@ -109,6 +120,17 @@ func main() {
 		viewersMutex.Unlock()
 
 		json.NewEncoder(w).Encode(map[string]int{"viewers": activeCount})
+	})
+
+	http.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+
+		streamStateMutex.Lock()
+		live := isStreamActive
+		streamStateMutex.Unlock()
+
+		json.NewEncoder(w).Encode(map[string]bool{"live": live})
 	})
 
 	fmt.Println("🚀 Core Backend is running on http://localhost:8080")

@@ -4,11 +4,11 @@ import './App.css';
 
 function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
 
   const [clientId] = useState(() => {
     const savedId = localStorage.getItem('viewerId');
     if (savedId) return savedId;
-
     const newId = crypto.randomUUID
       ? crypto.randomUUID()
       : Date.now().toString(36);
@@ -24,6 +24,7 @@ function App() {
   const API_URL = env.VITE_API_URL || 'http://localhost:8080';
   const STREAM_URL = 'http://localhost:8888/live/test/index.m3u8';
 
+  // 1. СЧЕТЧИК ЗРИТЕЛЕЙ
   useEffect(() => {
     const fetchStats = async () => {
       try {
@@ -36,46 +37,51 @@ function App() {
         console.error(e);
       }
     };
-
     fetchStats();
-    const intervalId = window.setInterval(fetchStats, 3000);
-
-    return () => window.clearInterval(intervalId);
+    const interval = window.setInterval(fetchStats, 3000);
+    return () => window.clearInterval(interval);
   }, [API_URL, clientId]);
 
   useEffect(() => {
-    if (isLive) return;
-
-    const intervalId = window.setInterval(async () => {
+    const checkStatus = async () => {
       try {
-        const res = await fetch(`${STREAM_URL}?t=${Date.now()}`, {
-          method: 'GET',
-          cache: 'no-store',
-        });
-
+        const res = await fetch(`${API_URL}/api/status`);
         if (res.ok) {
-          setIsLive(true);
+          const data = await res.json();
+          setIsLive(data.live);
         }
       } catch (e) {
         console.error(e);
+        setIsLive(false);
       }
-    }, 2000);
+    };
 
-    return () => window.clearInterval(intervalId);
-  }, [isLive, STREAM_URL]);
+    // Спрашиваем бэкенд каждую секунду
+    const interval = window.setInterval(checkStatus, 1000);
+    return () => window.clearInterval(interval);
+  }, [API_URL]);
 
+  // 3. ЖЕСТКОЕ УПРАВЛЕНИЕ ПЛЕЕРОМ
   useEffect(() => {
-    if (!isLive || !videoRef.current) return;
-
-    if (!Hls.isSupported()) {
-      console.error('HLS is not supported in this browser');
+    // Если бэкенд сказал, что стрима нет -> убиваем всё
+    if (!isLive) {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.removeAttribute('src');
+        videoRef.current.load(); // Очищаем экран в черный цвет
+      }
       return;
     }
 
+    if (!videoRef.current || !Hls.isSupported()) return;
+
     const hls = new Hls({
       liveSyncDurationCount: 2,
-      manifestLoadingMaxRetry: 2,
-      fragLoadingMaxRetry: 2,
+      manifestLoadingMaxRetry: -1,
     });
 
     hls.loadSource(`${STREAM_URL}?t=${Date.now()}`);
@@ -85,20 +91,13 @@ function App() {
       videoRef.current?.play().catch(() => console.log('Autoplay blocked'));
     });
 
-    hls.on(Hls.Events.ERROR, (_, data) => {
-      if (data.fatal) {
-        hls.destroy();
-        if (videoRef.current) {
-          videoRef.current.pause();
-          videoRef.current.removeAttribute('src');
-          videoRef.current.load();
-        }
-        setIsLive(false);
-      }
-    });
+    hlsRef.current = hls;
 
     return () => {
-      hls.destroy();
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
     };
   }, [isLive, STREAM_URL]);
 
